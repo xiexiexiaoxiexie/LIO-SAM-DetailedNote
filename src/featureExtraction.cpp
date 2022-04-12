@@ -20,6 +20,8 @@ Date: 2021-02-21
 /**
  * 激光点曲率
 */
+
+//fujing
 struct smoothness_t{ 
     float value; // 曲率值
     size_t ind;  // 激光点一维索引
