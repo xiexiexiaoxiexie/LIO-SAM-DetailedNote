@@ -63,6 +63,10 @@ enum class SensorType { VELODYNE, OUSTER };
 class ParamServer
 {
 public:
+/* fujing   */
+    bool localizationMode;//定位模式或slam模式
+    string loadMapDir;//加载地图的地址
+    /*  */
 
     ros::NodeHandle nh;
 
@@ -153,6 +157,12 @@ public:
 
     ParamServer()
     {
+        /* fujing */
+        nh.param<bool>("/lio_sam/localizationMode", localizationMode, false);
+        nh.param<string>("/lio_sam/loadPCDDirectory", loadMapDir, "loading map failed");
+
+        /*  */
+
         nh.param<std::string>("/robot_id", robot_id, "roboat");
 
         // 从param server中读取key为"lio_sam/pointCloudTopic"对应的参数，存pointCloudTopic，第三个参数是默认值
@@ -363,3 +373,4 @@ float pointDistance(PointType p1, PointType p2)
 }
 
 #endif
+

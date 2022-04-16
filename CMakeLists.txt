@@ -20,7 +20,7 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
   visualization_msgs
 )
-
+find_package(Boost REQUIRED COMPONENTS timer)
 find_package( GTSAMCMakeTools )
 
 find_package(OpenMP REQUIRED)
@@ -102,3 +102,6 @@ target_link_libraries(${PROJECT_NAME}_mapOptmization ${catkin_LIBRARIES} ${PCL_L
 # IMU Preintegration
 add_executable(${PROJECT_NAME}_imuPreintegration src/imuPreintegration.cpp)
 target_link_libraries(${PROJECT_NAME}_imuPreintegration ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} gtsam)
+# Boost
+target_link_libraries(${PROJECT_NAME}_mapOptmization Boost::timer)
+

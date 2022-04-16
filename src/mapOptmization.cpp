@@ -48,7 +48,9 @@ Date: 2021-02-21
 #include <gtsam/nonlinear/ISAM2.h>
 
 using namespace gtsam;
-
+/*  fujing*/
+//symbol 给每一个factor graph中的节点添加一个唯一的符号
+/*  */
 using symbol_shorthand::X; // Pose3 (x,y,z,r,p,y)
 using symbol_shorthand::V; // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::B; // Bias  (ax,ay,az,gx,gy,gz)
@@ -82,9 +84,21 @@ class mapOptimization : public ParamServer
 {
 
 public:
+    /* added by fujing 
+    已保存的地图*/
+    pcl::PointCloud<PointType>::Ptr pExistedGlobalMap;
+    pcl::PointCloud<PointType>::Ptr pExistedCornerMap;
+    pcl::PointCloud<PointType>::Ptr pExistedSurfMap;
+    ros::Publisher pubExistedGlobalMap;
+    ros::Publisher pubExistedCornerMap;
+    ros::Publisher pubExistedSurfMap;
 
+
+    /*  */
     // gtsam
     NonlinearFactorGraph gtSAMgraph;
+    /* fujing */
+    //Values类，对系统设置初始值
     Values initialEstimate;
     Values optimizedEstimate;
     ISAM2 *isam;
@@ -211,6 +225,7 @@ public:
     */
     mapOptimization()
     {
+        
         // ISM2参数
         ISAM2Params parameters;
         parameters.relinearizeThreshold = 0.1;
@@ -258,13 +273,52 @@ public:
         downSizeFilterSurroundingKeyPoses.setLeafSize(surroundingKeyframeDensity, surroundingKeyframeDensity, surroundingKeyframeDensity); // for surrounding key poses of scan-to-map optimization
 
         allocateMemory();
+        /* added by fujing
+        如果是定位模式，要load地图 */
+        pubExistedGlobalMap = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/ExistedGlobalMap", 1);
+
+        if(localizationMode){
+            loadExistedMap();
+            ros::Rate loop_rate(1);
+/*              while(ros::ok()){
+                loop_rate.sleep();
+                publishCloud(& pubExistedGlobalMap, pExistedGlobalMap, timeLaserInfoStamp, odometryFrame);
+
+            }  */
+
+
+
+
+        }
     }
+    /* added by fujing  */
+    void loadExistedMap()
+    {
+        pcl::io::loadPCDFile(loadMapDir + "GlobalMap.pcd", *pExistedGlobalMap);
+        pcl::io::loadPCDFile(loadMapDir + "CornerMap.pcd", *pExistedCornerMap);
+        pcl::io::loadPCDFile(loadMapDir + "SurfMap.pcd", *pExistedSurfMap);
+
+/*         pcl::PointCloud<PointType>::Ptr cloud_temp(new pcl::PointCloud<PointType>());
+        downSizeFilterICP.setInputCloud(cloudGlobalMap);
+        downSizeFilterICP.filter(*cloud_temp);
+        //*cloudGlobalMap = *cloud_temp;
+        *cloudGlobalMapDS = *cloud_temp;
+
+        std::cout << "test 0.01  the size of global cloud: " << cloudGlobalMap->points.size() << std::endl;
+        std::cout << "test 0.02  the size of global map after filter: " << cloudGlobalMapDS->points.size() << std::endl; */
+    }
+    /*  */
 
     /**
      * 初始化
     */
     void allocateMemory()
     {
+        /* added by fujing */
+        pExistedGlobalMap.reset(new pcl::PointCloud<PointType>());
+        pExistedCornerMap.reset(new pcl::PointCloud<PointType>());
+        pExistedSurfMap.reset(new pcl::PointCloud<PointType>());
+        /*            */
         cloudKeyPoses3D.reset(new pcl::PointCloud<PointType>());
         cloudKeyPoses6D.reset(new pcl::PointCloud<PointTypePose>());
         copy_cloudKeyPoses3D.reset(new pcl::PointCloud<PointType>());
@@ -339,6 +393,14 @@ public:
     */
     void laserCloudInfoHandler(const lio_sam::cloud_infoConstPtr& msgIn)
     {
+        /* added by fujing 
+        发布已存在的全局地图*/
+        if(localizationMode){
+            publishCloud(& pubExistedGlobalMap, pExistedGlobalMap, timeLaserInfoStamp, odometryFrame);
+
+        }
+        /*  */
+
         // 当前激光帧时间戳
         timeLaserInfoStamp = msgIn->header.stamp;
         timeLaserInfoCur = msgIn->header.stamp.toSec();
@@ -364,7 +426,15 @@ public:
             // 提取局部角点、平面点云集合，加入局部map
             // 1、对最近的一帧关键帧，搜索时空维度上相邻的关键帧集合，降采样一下
             // 2、对关键帧集合中的每一帧，提取对应的角点、平面点，加入局部map中
-            extractSurroundingKeyFrames();
+            /* added by fujing */
+            if(localizationMode){
+                pcl::PointCloud<PointType>::Ptr surroundingKeyPosesDS(new pcl::PointCloud<PointType>());
+                //用加载的地图构建局部地图
+                extractCloudLocalizationMode();
+            }
+            else{
+                extractSurroundingKeyFrames();
+            }
 
             // 当前激光帧角点、平面点集合降采样
             downsampleCurrentScan();
@@ -1135,7 +1205,60 @@ public:
         extractCloud(surroundingKeyPosesDS);
     }
 
-    /**
+    
+       /* added by fujing 
+    用加载的map构建匹配的surf和cornermap*/
+    void extractCloudLocalizationMode()
+    {
+        // 相邻关键帧集合对应的角点、平面点，加入到局部map中；注：称之为局部map，后面进行scan-to-map匹配，所用到的map就是这里的相邻关键帧对应点云集合
+        // laserCloudCornerFromMap->clear();
+        // laserCloudSurfFromMap->clear(); 
+        // 遍历当前帧（实际是取最近的一个关键帧来找它相邻的关键帧集合）时空维度上相邻的关键帧集合
+        // for (int i = 0; i < (int)cloudToExtract->size(); ++i)
+        //  {
+        //     // 距离超过阈值，丢弃
+        // if (pointDistance(cloudToExtract->points[i], cloudKeyPoses3D->back()) > surroundingKeyframeSearchRadius)
+        //        continue;
+        // else{
+
+        // }
+
+        //     // 相邻关键帧索引
+        //     int thisKeyInd = (int)cloudToExtract->points[i].intensity;
+        //     if (laserCloudMapContainer.find(thisKeyInd) != laserCloudMapContainer.end()) 
+        //     {
+        //         *laserCloudCornerFromMap += laserCloudMapContainer[thisKeyInd].first;
+        //         *laserCloudSurfFromMap   += laserCloudMapContainer[thisKeyInd].second;
+        //     } else {
+        //         // 相邻关键帧对应的角点、平面点云，通过6D位姿变换到世界坐标系下
+        //         pcl::PointCloud<PointType> laserCloudCornerTemp = *transformPointCloud(cornerCloudKeyFrames[thisKeyInd],  &cloudKeyPoses6D->points[thisKeyInd]);
+        //         pcl::PointCloud<PointType> laserCloudSurfTemp = *transformPointCloud(surfCloudKeyFrames[thisKeyInd],    &cloudKeyPoses6D->points[thisKeyInd]);
+        //         // 加入局部map
+        //         *laserCloudCornerFromMap += laserCloudCornerTemp;
+        //         *laserCloudSurfFromMap   += laserCloudSurfTemp;
+        //         laserCloudMapContainer[thisKeyInd] = make_pair(laserCloudCornerTemp, laserCloudSurfTemp);
+        //     }
+            
+        //} 
+
+        // 降采样局部角点map
+        
+        downSizeFilterCorner.setInputCloud(pExistedCornerMap);
+        downSizeFilterCorner.filter(*laserCloudCornerFromMapDS);
+        laserCloudCornerFromMapDSNum = laserCloudCornerFromMapDS->size();
+        // 降采样局部平面点map
+        downSizeFilterSurf.setInputCloud(pExistedSurfMap);
+        downSizeFilterSurf.filter(*laserCloudSurfFromMapDS);
+        laserCloudSurfFromMapDSNum = laserCloudSurfFromMapDS->size();
+
+        // 太大了，清空一下内存
+        if (laserCloudMapContainer.size() > 1000)
+            laserCloudMapContainer.clear();
+    }
+
+/*  */
+
+/**
      * 将相邻关键帧集合对应的角点、平面点，加入到局部map中，作为scan-to-map匹配的局部点云地图
     */
     void extractCloud(pcl::PointCloud<PointType>::Ptr cloudToExtract)
@@ -1181,6 +1304,7 @@ public:
         if (laserCloudMapContainer.size() > 1000)
             laserCloudMapContainer.clear();
     }
+
 
     /**
      * 提取局部角点、平面点云集合，加入局部map
@@ -1960,16 +2084,20 @@ public:
         transformTobeMapped[3] = latestEstimate.translation().x();
         transformTobeMapped[4] = latestEstimate.translation().y();
         transformTobeMapped[5] = latestEstimate.translation().z();
+        /* changed by fujing */
+        if(!localizationMode){
 
-        // 当前帧激光角点、平面点，降采样集合
-        pcl::PointCloud<PointType>::Ptr thisCornerKeyFrame(new pcl::PointCloud<PointType>());
-        pcl::PointCloud<PointType>::Ptr thisSurfKeyFrame(new pcl::PointCloud<PointType>());
-        pcl::copyPointCloud(*laserCloudCornerLastDS,  *thisCornerKeyFrame);
-        pcl::copyPointCloud(*laserCloudSurfLastDS,    *thisSurfKeyFrame);
+            // 当前帧激光角点、平面点，降采样集合
+            pcl::PointCloud<PointType>::Ptr thisCornerKeyFrame(new pcl::PointCloud<PointType>());
+            pcl::PointCloud<PointType>::Ptr thisSurfKeyFrame(new pcl::PointCloud<PointType>());
+            pcl::copyPointCloud(*laserCloudCornerLastDS,  *thisCornerKeyFrame);
+            pcl::copyPointCloud(*laserCloudSurfLastDS,    *thisSurfKeyFrame);
 
-        // 保存特征点降采样集合
-        cornerCloudKeyFrames.push_back(thisCornerKeyFrame);
-        surfCloudKeyFrames.push_back(thisSurfKeyFrame);
+            // 保存特征点降采样集合
+            cornerCloudKeyFrames.push_back(thisCornerKeyFrame);
+            surfCloudKeyFrames.push_back(thisSurfKeyFrame);
+        }
+        
 
         // 更新里程计轨迹
         updatePath(thisPose6D);
@@ -2171,3 +2299,4 @@ int main(int argc, char** argv)
 
     return 0;
 }
+

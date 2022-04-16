@@ -240,6 +240,9 @@ public:
     std::deque<sensor_msgs::Imu> imuQueImu;
 
     // imu因子图优化过程中的状态变量
+    /* fujing */
+    //Pose3==se(3)???
+    /*  */
     gtsam::Pose3 prevPose_;
     gtsam::Vector3 prevVel_;
     gtsam::NavState prevState_;
@@ -463,6 +466,9 @@ public:
         gtsam::ImuFactor imu_factor(X(key - 1), V(key - 1), X(key), V(key), B(key - 1), preint_imu);
         graphFactors.add(imu_factor);
         // 添加imu偏置因子，前一帧偏置，当前帧偏置，观测值，噪声协方差；deltaTij()是积分段的时间
+        /* fujing */
+        //向factor graph中添加测量，betweenfactor二元边？
+        /*  */
         graphFactors.add(gtsam::BetweenFactor<gtsam::imuBias::ConstantBias>(B(key - 1), B(key), gtsam::imuBias::ConstantBias(),
                          gtsam::noiseModel::Diagonal::Sigmas(sqrt(imuIntegratorOpt_->deltaTij()) * noiseModelBetweenBias)));
         // 添加位姿因子
@@ -630,3 +636,4 @@ int main(int argc, char** argv)
     
     return 0;
 }
+
