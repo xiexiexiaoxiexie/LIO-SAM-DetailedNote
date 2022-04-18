@@ -92,9 +92,8 @@ public:
     ros::Publisher pubExistedGlobalMap;
     ros::Publisher pubExistedCornerMap;
     ros::Publisher pubExistedSurfMap;
-
-
     /*  */
+
     // gtsam
     NonlinearFactorGraph gtSAMgraph;
     /* fujing */
@@ -279,16 +278,11 @@ public:
 
         if(localizationMode){
             loadExistedMap();
-            ros::Rate loop_rate(1);
 /*              while(ros::ok()){
                 loop_rate.sleep();
                 publishCloud(& pubExistedGlobalMap, pExistedGlobalMap, timeLaserInfoStamp, odometryFrame);
 
             }  */
-
-
-
-
         }
     }
     /* added by fujing  */
@@ -297,15 +291,6 @@ public:
         pcl::io::loadPCDFile(loadMapDir + "GlobalMap.pcd", *pExistedGlobalMap);
         pcl::io::loadPCDFile(loadMapDir + "CornerMap.pcd", *pExistedCornerMap);
         pcl::io::loadPCDFile(loadMapDir + "SurfMap.pcd", *pExistedSurfMap);
-
-/*         pcl::PointCloud<PointType>::Ptr cloud_temp(new pcl::PointCloud<PointType>());
-        downSizeFilterICP.setInputCloud(cloudGlobalMap);
-        downSizeFilterICP.filter(*cloud_temp);
-        //*cloudGlobalMap = *cloud_temp;
-        *cloudGlobalMapDS = *cloud_temp;
-
-        std::cout << "test 0.01  the size of global cloud: " << cloudGlobalMap->points.size() << std::endl;
-        std::cout << "test 0.02  the size of global map after filter: " << cloudGlobalMapDS->points.size() << std::endl; */
     }
     /*  */
 
@@ -395,6 +380,8 @@ public:
     {
         /* added by fujing 
         发布已存在的全局地图*/
+        clock_t startTime,endTime;
+        startTime=ros::Time::now().toNSec();
         if(localizationMode){
             publishCloud(& pubExistedGlobalMap, pExistedGlobalMap, timeLaserInfoStamp, odometryFrame);
 
@@ -421,23 +408,48 @@ public:
             // 当前帧位姿初始化
             // 1、如果是第一帧，用原始imu数据的RPY初始化当前帧位姿（旋转部分）
             // 2、后续帧，用imu里程计计算两帧之间的增量位姿变换，作用于前一帧的激光位姿，得到当前帧激光位姿
-            updateInitialGuess();
+        startTime=ros::Time::now().toNSec();
+            
+            updateInitialGuess();   
+
+
+            endTime=ros::Time::now().toNSec();
+            cout<<"updateInitialGuess handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
 
             // 提取局部角点、平面点云集合，加入局部map
             // 1、对最近的一帧关键帧，搜索时空维度上相邻的关键帧集合，降采样一下
             // 2、对关键帧集合中的每一帧，提取对应的角点、平面点，加入局部map中
-            /* added by fujing */
+            /* added by fujing
+            不需要每一帧都重新构建局部地图 */
             if(localizationMode){
-                pcl::PointCloud<PointType>::Ptr surroundingKeyPosesDS(new pcl::PointCloud<PointType>());
-                //用加载的地图构建局部地图
-                extractCloudLocalizationMode();
+                if(updateLocalMap){
+                     pcl::PointCloud<PointType>::Ptr surroundingKeyPosesDS(new pcl::PointCloud<PointType>());
+                    //用加载的地图构建局部地图
+        startTime=ros::Time::now().toNSec();
+                    extractCloudLocalizationMode();
+                    updateLocalMap=false;
+
+                    endTime=ros::Time::now().toNSec();
+        cout<<"extractCloudLocalizationMode handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+
+
+                }
+               
             }
             else{
+        startTime=ros::Time::now().toNSec();
                 extractSurroundingKeyFrames();
+
+                endTime=ros::Time::now().toNSec();
+        cout<<"extractSurroundingKeyFrames handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
             }
 
             // 当前激光帧角点、平面点集合降采样
+        startTime=ros::Time::now().toNSec();
             downsampleCurrentScan();
+
+            endTime=ros::Time::now().toNSec();
+        cout<<"downsampleCurrentScan handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
 
             // scan-to-map优化当前帧位姿
             // 1、要求当前帧特征点数量足够多，且匹配的点数够多，才执行优化
@@ -451,21 +463,36 @@ public:
             //    3) 提取当前帧中与局部map匹配上了的角点、平面点，加入同一集合
             //    4) 对匹配特征点计算Jacobian矩阵，观测值为特征点到直线、平面的距离，构建高斯牛顿方程，迭代优化当前位姿，存transformTobeMapped
             // 3、用imu原始RPY数据与scan-to-map优化后的位姿进行加权融合，更新当前帧位姿的roll、pitch，约束z坐标
+        startTime=ros::Time::now().toNSec();
             scan2MapOptimization();
 
+endTime=ros::Time::now().toNSec();
+        cout<<"scan2MapOptimization handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
             // 设置当前帧为关键帧并执行因子图优化
             // 1、计算当前帧与前一帧位姿变换，如果变化太小，不设为关键帧，反之设为关键帧
             // 2、添加激光里程计因子、GPS因子、闭环因子
             // 3、执行因子图优化
             // 4、得到当前帧优化后位姿，位姿协方差
             // 5、添加cloudKeyPoses3D，cloudKeyPoses6D，更新transformTobeMapped，添加当前关键帧的角点、平面点集合
+        startTime=ros::Time::now().toNSec();
             saveKeyFramesAndFactor();
 
+            endTime=ros::Time::now().toNSec();
+        cout<<"saveKeyFramesAndFactor handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+
             // 更新因子图中所有变量节点的位姿，也就是所有历史关键帧的位姿，更新里程计轨迹
+        startTime=ros::Time::now().toNSec();
             correctPoses();
 
+            endTime=ros::Time::now().toNSec();
+        cout<<"correctPoses handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+
             // 发布激光里程计
+        startTime=ros::Time::now().toNSec();
             publishOdometry();
+
+            endTime=ros::Time::now().toNSec();
+        cout<<"publishOdometry handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
 
             // 发布里程计、点云、轨迹
             // 1、发布历史关键帧位姿集合
@@ -474,6 +501,9 @@ public:
             // 4、发布里程计轨迹
             publishFrames();
         }
+        endTime=ros::Time::now().toNSec();
+        cout<<"laser handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+
     }
 
     /**
@@ -871,6 +901,7 @@ public:
         mtx.unlock();
 
         loopIndexContainer[loopKeyCur] = loopKeyPre;
+        std::cout<<"loop clousure detected!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"<<std::endl;
     }
 
     /**
@@ -1750,8 +1781,14 @@ public:
         if (laserCloudCornerLastDSNum > edgeFeatureMinValidNum && laserCloudSurfLastDSNum > surfFeatureMinValidNum)
         {
             // kdtree输入为局部map点云
+             startTime=ros::Time::now().toNSec();
+
+
             kdtreeCornerFromMap->setInputCloud(laserCloudCornerFromMapDS);
             kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
+
+            endTime=ros::Time::now().toNSec();
+        cout<<"kdtree time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
 
             // 迭代30次
             for (int iterCount = 0; iterCount < 30; iterCount++)

@@ -1,0 +1,6 @@
+mapOptmizaiton.cpp:
+    loopclosure: since keyframes do not contain pointcloud anymore, loopclosure detection need to cut the globalmap as  local map in order to perform matching.
+    localmap generation: according to the robot localization, cut the globalmap reload the local map. This needs to be done as the robot is near the border of the last local map.
+    initial position of the robot: maybe click on  rviz, right now  the initial position is (0,0,0)
+    add scan context for outdoor loop closure detection
+    the existed map is actually much bigger than the local map built by nearby keyframes, which make the kdtree search takes much longer.

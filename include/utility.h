@@ -66,6 +66,7 @@ public:
 /* fujing   */
     bool localizationMode;//定位模式或slam模式
     string loadMapDir;//加载地图的地址
+    bool updateLocalMap;
     /*  */
 
     ros::NodeHandle nh;
@@ -160,6 +161,7 @@ public:
         /* fujing */
         nh.param<bool>("/lio_sam/localizationMode", localizationMode, false);
         nh.param<string>("/lio_sam/loadPCDDirectory", loadMapDir, "loading map failed");
+        nh.param<bool>("/lio_sam/updataLocalMap", updateLocalMap, true);
 
         /*  */
 
