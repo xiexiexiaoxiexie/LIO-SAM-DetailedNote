@@ -126,11 +126,14 @@ public:
         calculateSmoothness();
 
         // 标记属于遮挡、平行两种情况的点，不做特征提取
+        //遮挡附近随位置不同得到的scan不同，认为不可靠
         markOccludedPoints();
 
         // 点云角点、平面点特征提取
         // 1、遍历扫描线，每根扫描线扫描一周的点云划分为6段，针对每段提取20个角点、不限数量的平面点，加入角点集合、平面点集合
         // 2、认为非角点的点都是平面点，加入平面点云集合，最后降采样
+        //只是区分了角点和非角点？？
+        // 按扫描线遍历
         extractFeatures();
         
         // 发布角点、面点点云，发布带特征点云数据的当前激光帧点云信息
@@ -361,6 +364,7 @@ public:
         cloudInfo.cloud_corner  = publishCloud(&pubCornerPoints,  cornerCloud,  cloudHeader.stamp, lidarFrame);
         cloudInfo.cloud_surface = publishCloud(&pubSurfacePoints, surfaceCloud, cloudHeader.stamp, lidarFrame);
         // 发布当前激光帧点云信息，加入了角点、面点点云数据，发布给mapOptimization
+        // 发布的是lio_sam/feature/cloud_info, image 发布的是lio_sam/deskew/cloud_info
         pubLaserCloudInfo.publish(cloudInfo);
     }
 };

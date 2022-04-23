@@ -158,7 +158,10 @@ public:
 
     /**
      * 初始化
+     * pcl Ptr是智能指针
     */
+
+
     void allocateMemory()
     {
         laserCloudIn.reset(new pcl::PointCloud<PointXYZIRT>());
@@ -272,9 +275,11 @@ public:
         // 当前帧激光点云运动畸变校正
         // 1、检查激光点距离、扫描线是否合规
         // 2、激光运动畸变校正，保存激光点
+        // 3、平移用odomDeskewInfo来算，旋转用imuDeskewInfo来算
         projectPointCloud();
 
         // 提取有效激光点，存extractedCloud
+        //每一帧前后5个点不考虑？？？
         cloudExtraction();
 
         // 发布当前帧校正后点云，有效点
@@ -731,6 +736,7 @@ public:
 
     /**
      * 提取有效激光点，存extractedCloud
+     * 每一帧前后五个点不考虑？？？？？？，但是还是被保存，需要五个点算曲率
     */
     void cloudExtraction()
     {
@@ -780,6 +786,7 @@ int main(int argc, char** argv)
     
     ROS_INFO("\033[1;32m----> Image Projection Started.\033[0m");
 
+    //三个sub，三个thread
     ros::MultiThreadedSpinner spinner(3);
     spinner.spin();
     

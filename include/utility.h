@@ -261,6 +261,7 @@ public:
 
     /**
      * imu原始测量数据转换到lidar系，加速度、角速度、RPY
+     * 只转换了旋转，平移在imuPreintegration中通过imu2lidar和lidar2imu转换
     */
     sensor_msgs::Imu imuConverter(const sensor_msgs::Imu& imu_in)
     {

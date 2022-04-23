@@ -1128,6 +1128,7 @@ endTime=ros::Time::now().toNSec();
         if (cloudInfo.odomAvailable == true)
         {
             // 当前帧的初始估计位姿（来自imu里程计），后面用来计算增量位姿变换
+            // 在imageProjection.cpp中在cloudinfo中加了本帧的initial guess，来自imu里程计
             Eigen::Affine3f transBack = pcl::getTransformation(cloudInfo.initialGuessX,    cloudInfo.initialGuessY,     cloudInfo.initialGuessZ, 
                                                                cloudInfo.initialGuessRoll, cloudInfo.initialGuessPitch, cloudInfo.initialGuessYaw);
             if (lastImuPreTransAvailable == false)

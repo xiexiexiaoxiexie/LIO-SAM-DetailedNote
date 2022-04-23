@@ -98,6 +98,7 @@ public:
         subImuOdometry   = nh.subscribe<nav_msgs::Odometry>(odomTopic+"_incremental",   2000, &TransformFusion::imuOdometryHandler,   this, ros::TransportHints().tcpNoDelay());
 
         // 发布imu里程计，用于rviz展示
+        //相当于在前一帧激光里程计位姿上做预测，IMUPreintegration频率
         pubImuOdometry   = nh.advertise<nav_msgs::Odometry>(odomTopic, 2000);
         // 发布imu里程计轨迹
         pubImuPath       = nh.advertise<nav_msgs::Path>    ("lio_sam/imu/path", 1);
@@ -120,11 +121,13 @@ public:
 
     /**
      * 订阅激光里程计，来自mapOptimization
+     * 利用两帧激光里程计和imu预积分来优化imu的bias，用优化过的bias计算在激光里程计基础上+imu的预测
     */
     void lidarOdometryHandler(const nav_msgs::Odometry::ConstPtr& odomMsg)
     {
         std::lock_guard<std::mutex> lock(mtx);
         // 激光里程计对应变换矩阵
+        //最近的那一个，不再是是vector之类
         lidarOdomAffine = odom2affine(*odomMsg);
         // 激光里程计时间戳
         lidarOdomTime = odomMsg->header.stamp.toSec();
@@ -232,11 +235,15 @@ public:
     gtsam::Vector noiseModelBetweenBias;
 
     // imu预积分器
+    //负责积分两个激光里程计之间的imu数据，作为约束加入因子图，并且优化出bias
     gtsam::PreintegratedImuMeasurements *imuIntegratorOpt_;
+    // 用来根据新的激光里程计到达后已经优化好的bias预测从当前帧开始下一帧激光里程计到达之前的imu里程计增量
     gtsam::PreintegratedImuMeasurements *imuIntegratorImu_;
 
     // imu数据队列
+    // 用来给imuIntegratorOpt_提供数据，不需要的就弹出，比当前激光里程计时间早的通通积分，用一个扔一个
     std::deque<sensor_msgs::Imu> imuQueOpt;
+    // 用来给imuIntegratorImu_提供数据
     std::deque<sensor_msgs::Imu> imuQueImu;
 
     // imu因子图优化过程中的状态变量
@@ -266,6 +273,7 @@ public:
     int key = 1;
 
     // imu-lidar位姿变换
+    //只是平移？？？？
     gtsam::Pose3 imu2Lidar = gtsam::Pose3(gtsam::Rot3(1, 0, 0, 0), gtsam::Point3(-extTrans.x(), -extTrans.y(), -extTrans.z()));
     gtsam::Pose3 lidar2Imu = gtsam::Pose3(gtsam::Rot3(1, 0, 0, 0), gtsam::Point3(extTrans.x(), extTrans.y(), extTrans.z()));
 
@@ -630,7 +638,7 @@ int main(int argc, char** argv)
     TransformFusion TF;
 
     ROS_INFO("\033[1;32m----> IMU Preintegration Started.\033[0m");
-    
+    //4个sub,4个thread
     ros::MultiThreadedSpinner spinner(4);
     spinner.spin();
     
