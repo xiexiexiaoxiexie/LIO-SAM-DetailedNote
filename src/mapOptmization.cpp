@@ -92,6 +92,10 @@ public:
     ros::Publisher pubExistedGlobalMap;
     ros::Publisher pubExistedCornerMap;
     ros::Publisher pubExistedSurfMap;
+    //记录使用keyframe中的localmap进行icp匹配的次数，达到这一次数后使用globalmap进行icp匹配，解决每一帧都使用global map会造成kdtree找最近耗时太久的问题
+    int frameLocalMapIcpTimes;
+    int frameLocalMapIcpThres;
+
     /*  */
 
     // gtsam
@@ -275,12 +279,13 @@ public:
         allocateMemory();
         /* added by fujing
         如果是定位模式，要load地图 */
+        frameLocalMapIcpTimes=0;
+        frameLocalMapIcpThres=10;
         pubExistedGlobalMap = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/ExistedGlobalMap", 1);
 
         if(localizationMode){
             loadExistedMap();
-/*              while(ros::ok()){
-                loop_rate.sleep();
+/*             
                 publishCloud(& pubExistedGlobalMap, pExistedGlobalMap, timeLaserInfoStamp, odometryFrame);
 
             }  */
@@ -417,9 +422,12 @@ public:
             // 提取局部角点、平面点云集合，加入局部map
             // 1、对最近的一帧关键帧，搜索时空维度上相邻的关键帧集合，降采样一下
             // 2、对关键帧集合中的每一帧，提取对应的角点、平面点，加入局部map中
-            /* added by fujing
+            /* changed by fujing
+            * 使用frame localmap的次数大于threshold时才使用global map做icp匹配
             不需要每一帧都重新构建局部地图 */
-            if(localizationMode){
+            frameLocalMapIcpTimes++;
+            if(localizationMode&&frameLocalMapIcpTimes>frameLocalMapIcpThres){
+                frameLocalMapIcpTimes=0;
                 if(updateLocalMap){
                      pcl::PointCloud<PointType>::Ptr surroundingKeyPosesDS(new pcl::PointCloud<PointType>());
                     //用加载的地图构建局部地图
@@ -2114,7 +2122,7 @@ public:
         transformTobeMapped[4] = latestEstimate.translation().y();
         transformTobeMapped[5] = latestEstimate.translation().z();
         /* changed by fujing */
-        if(!localizationMode){
+        //if(!localizationMode){
 
             // 当前帧激光角点、平面点，降采样集合
             pcl::PointCloud<PointType>::Ptr thisCornerKeyFrame(new pcl::PointCloud<PointType>());
@@ -2125,7 +2133,7 @@ public:
             // 保存特征点降采样集合
             cornerCloudKeyFrames.push_back(thisCornerKeyFrame);
             surfCloudKeyFrames.push_back(thisSurfKeyFrame);
-        }
+       // }
         
 
         // 更新里程计轨迹
