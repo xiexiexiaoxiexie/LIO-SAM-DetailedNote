@@ -1,14 +1,19 @@
 # TODO
 - mapOptmizaiton.cpp:  
 
-    - Maybe keep the scan in each keyframe, match the scan-localmap 10hz, match the prebuilt-localmap 1hz.
+    - Maybe keep the scan in each keyframe, match the scan-localmap every 0.15s, match the prebuilt-localmap every 1s.
     - Loopclosure: since keyframes do not contain pointcloud anymore, loopclosure detection need to cut the globalmap as  local map in order to perform matching.
     - Localmap generation: according to the robot localization, cut the globalmap reload the local map. This needs to be done as the robot is near the border of the last local map.
     - Initial position of the robot: maybe click on  rviz, right now  the initial position is (0,0,0)
     - Add scan context for outdoor loop closure detection
     - The existed map is actually much bigger than the local map built by nearby keyframes, which make the kdtree search takes much longer.  
 
-
+# Questions
+- imageProjection.cpp:
+    - in cachePointCloud, cloudQueue.size() <= 2, is it necessary in localization mode? 
+- mapOptmization.cpp:
+    - why downsample keyframe poses?
+    - is the LM only optimize current pose?
 
 
 

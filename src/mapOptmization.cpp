@@ -127,6 +127,7 @@ public:
     lio_sam::cloud_info cloudInfo;
 
     // 历史所有关键帧的角点集合（降采样）
+    // 在lidar坐标系下，保存了所有keyframe中的点云，与pose3d、6d的对应关系通过points.intensity来存储
     vector<pcl::PointCloud<PointType>::Ptr> cornerCloudKeyFrames;
     // 历史所有关键帧的平面点集合（降采样）
     vector<pcl::PointCloud<PointType>::Ptr> surfCloudKeyFrames;
@@ -408,13 +409,10 @@ public:
             // 当前帧位姿初始化
             // 1、如果是第一帧，用原始imu数据的RPY初始化当前帧位姿（旋转部分）
             // 2、后续帧，用imu里程计计算两帧之间的增量位姿变换，作用于前一帧的激光位姿，得到当前帧激光位姿
-        startTime=ros::Time::now().toNSec();
-            
+            startTime=ros::Time::now().toNSec();
             updateInitialGuess();   
-
-
             endTime=ros::Time::now().toNSec();
-            cout<<"updateInitialGuess handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+            ROS_DEBUG_STREAM("updateInitialGuess handler time ="<<(double)(endTime-startTime)/10e6<<"ms");
 
             // 提取局部角点、平面点云集合，加入局部map
             // 1、对最近的一帧关键帧，搜索时空维度上相邻的关键帧集合，降采样一下
@@ -425,33 +423,32 @@ public:
                 if(updateLocalMap){
                      pcl::PointCloud<PointType>::Ptr surroundingKeyPosesDS(new pcl::PointCloud<PointType>());
                     //用加载的地图构建局部地图
-        startTime=ros::Time::now().toNSec();
+                    startTime=ros::Time::now().toNSec();
                     extractCloudLocalizationMode();
-                    updateLocalMap=false;
-
                     endTime=ros::Time::now().toNSec();
-        cout<<"extractCloudLocalizationMode handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+                    ROS_DEBUG_STREAM("extractCloudLocalizationMode handler time ="<<(double)(endTime-startTime)/10e6<<"ms");
 
-
+                    updateLocalMap=false;
                 }
                
             }
             else{
-        startTime=ros::Time::now().toNSec();
+                startTime=ros::Time::now().toNSec();
                 extractSurroundingKeyFrames();
-
                 endTime=ros::Time::now().toNSec();
-        cout<<"extractSurroundingKeyFrames handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+                ROS_DEBUG_STREAM("extractSurroundingKeyFrames handler time ="<<(double)(endTime-startTime)/10e6<<"ms");
+
+
             }
 
             // 当前激光帧角点、平面点集合降采样
-        startTime=ros::Time::now().toNSec();
+            startTime=ros::Time::now().toNSec();
             downsampleCurrentScan();
-
             endTime=ros::Time::now().toNSec();
-        cout<<"downsampleCurrentScan handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+            ROS_DEBUG_STREAM("downsampleCurrentScan handler time ="<<(double)(endTime-startTime)/10e6<<"ms");
 
             // scan-to-map优化当前帧位姿
+            //可以理解为icp
             // 1、要求当前帧特征点数量足够多，且匹配的点数够多，才执行优化
             // 2、迭代30次（上限）优化
             //    1) 当前激光帧角点寻找局部map匹配点
@@ -463,36 +460,37 @@ public:
             //    3) 提取当前帧中与局部map匹配上了的角点、平面点，加入同一集合
             //    4) 对匹配特征点计算Jacobian矩阵，观测值为特征点到直线、平面的距离，构建高斯牛顿方程，迭代优化当前位姿，存transformTobeMapped
             // 3、用imu原始RPY数据与scan-to-map优化后的位姿进行加权融合，更新当前帧位姿的roll、pitch，约束z坐标
-        startTime=ros::Time::now().toNSec();
+            startTime=ros::Time::now().toNSec();
             scan2MapOptimization();
+            endTime=ros::Time::now().toNSec();
+            ROS_DEBUG_STREAM("  scan2MapOptimization handler time ="<<(double)(endTime-startTime)/10e6<<"ms");
 
-endTime=ros::Time::now().toNSec();
-        cout<<"scan2MapOptimization handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
             // 设置当前帧为关键帧并执行因子图优化
             // 1、计算当前帧与前一帧位姿变换，如果变化太小，不设为关键帧，反之设为关键帧
             // 2、添加激光里程计因子、GPS因子、闭环因子
             // 3、执行因子图优化
             // 4、得到当前帧优化后位姿，位姿协方差
             // 5、添加cloudKeyPoses3D，cloudKeyPoses6D，更新transformTobeMapped，添加当前关键帧的角点、平面点集合
-        startTime=ros::Time::now().toNSec();
+            // cloudKeyPoses3D/cloudKeyPoses6D为激光里程计，GPS，回环优化过的pose，其中intensity字段存贮索引
+            // tobemapped存储的是icp的结果
+            startTime=ros::Time::now().toNSec();
             saveKeyFramesAndFactor();
-
             endTime=ros::Time::now().toNSec();
-        cout<<"saveKeyFramesAndFactor handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+            ROS_DEBUG_STREAM("saveKeyFramesAndFactor handler time = "<<(double)(endTime-startTime)/10e6<<"ms");
+
 
             // 更新因子图中所有变量节点的位姿，也就是所有历史关键帧的位姿，更新里程计轨迹
-        startTime=ros::Time::now().toNSec();
+            //只有找到回环的时候才更新
+            startTime=ros::Time::now().toNSec();
             correctPoses();
-
             endTime=ros::Time::now().toNSec();
-        cout<<"correctPoses handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+            ROS_DEBUG_STREAM("correctPoses handler time = "<<(double)(endTime-startTime)/10e6<<"ms");
 
             // 发布激光里程计
-        startTime=ros::Time::now().toNSec();
+            startTime=ros::Time::now().toNSec();
             publishOdometry();
-
             endTime=ros::Time::now().toNSec();
-        cout<<"publishOdometry handler time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+            ROS_DEBUG_STREAM("publishOdometry handler time = "<<(double)(endTime-startTime)/10e6<<"ms");
 
             // 发布里程计、点云、轨迹
             // 1、发布历史关键帧位姿集合
@@ -597,18 +595,6 @@ endTime=ros::Time::now().toNSec();
         thisPose6D.yaw   = transformIn[2];
         return thisPose6D;
     }
-
-    
-
-
-
-
-
-
-
-
-
-
 
 
     /**
@@ -874,6 +860,7 @@ endTime=ros::Time::now().toNSec();
             pcl::transformPointCloud(*cureKeyframeCloud, *closed_cloud, icp.getFinalTransformation());
             publishCloud(&pubIcpKeyFrames, closed_cloud, timeLaserInfoStamp, odometryFrame);
         }
+        ROS_ERROR_STREAM("LOOP CLOUSURE DETECTED");
 
         // 闭环优化得到的当前关键帧与闭环关键帧之间的位姿变换
         float x, y, z, roll, pitch, yaw;
@@ -1129,6 +1116,7 @@ endTime=ros::Time::now().toNSec();
         {
             // 当前帧的初始估计位姿（来自imu里程计），后面用来计算增量位姿变换
             // 在imageProjection.cpp中在cloudinfo中加了本帧的initial guess，来自imu里程计
+            // transformTobeMapped 是在mapOptmization中更新的位姿
             Eigen::Affine3f transBack = pcl::getTransformation(cloudInfo.initialGuessX,    cloudInfo.initialGuessY,     cloudInfo.initialGuessZ, 
                                                                cloudInfo.initialGuessRoll, cloudInfo.initialGuessPitch, cloudInfo.initialGuessYaw);
             if (lastImuPreTransAvailable == false)
@@ -1782,14 +1770,15 @@ endTime=ros::Time::now().toNSec();
         if (laserCloudCornerLastDSNum > edgeFeatureMinValidNum && laserCloudSurfLastDSNum > surfFeatureMinValidNum)
         {
             // kdtree输入为局部map点云
-             startTime=ros::Time::now().toNSec();
+            clock_t startTime,endTime;
 
-
+            startTime=ros::Time::now().toNSec();
             kdtreeCornerFromMap->setInputCloud(laserCloudCornerFromMapDS);
             kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
-
             endTime=ros::Time::now().toNSec();
-        cout<<"kdtree time = "<<(double)(endTime-startTime)/10e6<<"ms"<<endl;
+            ROS_DEBUG_STREAM("kdtree time = "<<(double)(endTime-startTime)/10e6<<"ms");
+
+        
 
             // 迭代30次
             for (int iterCount = 0; iterCount < 30; iterCount++)
@@ -1885,6 +1874,7 @@ endTime=ros::Time::now().toNSec();
         // 前一帧位姿
         Eigen::Affine3f transStart = pclPointToAffine3f(cloudKeyPoses6D->back());
         // 当前帧位姿
+        // transformTobeMapped icp优化过的位姿
         Eigen::Affine3f transFinal = pcl::getTransformation(transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5], 
                                                             transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]);
         // 位姿变换增量
@@ -2063,7 +2053,7 @@ endTime=ros::Time::now().toNSec();
         // gtSAMgraph.print("GTSAM Graph:\n");
         
         // 执行优化
-        isam->update(gtSAMgraph, initialEstimate);
+        isam->update(gtSAMgraph, initialEstimate); 
         isam->update();
 
         if (aLoopIsClosed == true)
@@ -2091,6 +2081,7 @@ endTime=ros::Time::now().toNSec();
         // isamCurrentEstimate.print("Current estimate: ");
 
         // cloudKeyPoses3D加入当前帧位姿
+        // 利用intensity字段记录索引
         thisPose3D.x = latestEstimate.translation().x();
         thisPose3D.y = latestEstimate.translation().y();
         thisPose3D.z = latestEstimate.translation().z();
@@ -2323,6 +2314,7 @@ endTime=ros::Time::now().toNSec();
 int main(int argc, char** argv)
 {
     ros::init(argc, argv, "lio_sam");
+    ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME,ros::console::levels::Debug);
 
     mapOptimization MO;
 
