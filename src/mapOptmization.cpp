@@ -450,6 +450,7 @@ public:
             }
 
             // 当前激光帧角点、平面点集合降采样
+            // laserCloudSurfLastDS laserCloudCornerLastDS
             startTime=ros::Time::now().toNSec();
             downsampleCurrentScan();
             endTime=ros::Time::now().toNSec();
@@ -468,6 +469,8 @@ public:
             //    3) 提取当前帧中与局部map匹配上了的角点、平面点，加入同一集合
             //    4) 对匹配特征点计算Jacobian矩阵，观测值为特征点到直线、平面的距离，构建高斯牛顿方程，迭代优化当前位姿，存transformTobeMapped
             // 3、用imu原始RPY数据与scan-to-map优化后的位姿进行加权融合，更新当前帧位姿的roll、pitch，约束z坐标
+
+            // 单帧优化使用手推的高斯牛顿
             startTime=ros::Time::now().toNSec();
             scan2MapOptimization();
             endTime=ros::Time::now().toNSec();
@@ -747,15 +750,6 @@ public:
         downSizeFilterGlobalMapKeyFrames.filter(*globalMapKeyFramesDS);
         publishCloud(&pubLaserCloudSurround, globalMapKeyFramesDS, timeLaserInfoStamp, odometryFrame);
     }
-
-
-
-
-
-
-
-
-
 
 
     /**
@@ -1081,18 +1075,11 @@ public:
     }
 
 
-
-
-
-
-
-    
-
-
     /**
      * 当前帧位姿初始化
      * 1、如果是第一帧，用原始imu数据的RPY初始化当前帧位姿（旋转部分）
      * 2、后续帧，用imu里程计计算两帧之间的增量位姿变换，作用于前一帧的激光位姿，得到当前帧激光位姿
+     * lastImuTransformation 赋值
     */
     void updateInitialGuess()
     {
@@ -1338,6 +1325,7 @@ public:
      * 提取局部角点、平面点云集合，加入局部map
      * 1、对最近的一帧关键帧，搜索时空维度上相邻的关键帧集合，降采样一下
      * 2、对关键帧集合中的每一帧，提取对应的角点、平面点，加入局部map中
+     * laserCloudCornerFromMapDS laserCloudSurfFromMapDS
     */
     void extractSurroundingKeyFrames()
     {
@@ -1393,7 +1381,7 @@ public:
         // 更新当前帧位姿
         updatePointAssociateToMap();
 
-        // 遍历当前帧角点集合
+        // 遍历当前帧角点集合，for代表for循环中的多线程
         #pragma omp parallel for num_threads(numberOfCores)
         for (int i = 0; i < laserCloudCornerLastDSNum; i++)
         {
@@ -1480,10 +1468,11 @@ public:
                     // 三角形的高，也就是点到直线距离
                     float ld2 = a012 / l12;
 
-                    // 距离越大，s越小，是个距离惩罚因子（权重）
+                    // 距离越大，s越小，是个距离惩罚因子（权重），计算权重(距离越远，权重越小，相当于损失函数，为了抑制噪声的影响)
                     float s = 1 - 0.9 * fabs(ld2);
 
                     // 点到直线的垂线段单位向量
+                    // 距离的方向向量
                     coeff.x = s * la;
                     coeff.y = s * lb;
                     coeff.z = s * lc;
@@ -1622,6 +1611,7 @@ public:
      * scan-to-map优化
      * 对匹配特征点计算Jacobian矩阵，观测值为特征点到直线、平面的距离，构建高斯牛顿方程，迭代优化当前位姿，存transformTobeMapped
      * 公式推导：todo
+     * https://blog.csdn.net/weixin_37835423/article/details/111587379
     */
     bool LMOptimization(int iterCount)
     {
@@ -1669,14 +1659,17 @@ public:
             coeff.z = coeffSel->points[i].x;
             coeff.intensity = coeffSel->points[i].intensity;
             // in camera
+            // J_rx
             float arx = (crx*sry*srz*pointOri.x + crx*crz*sry*pointOri.y - srx*sry*pointOri.z) * coeff.x
                       + (-srx*srz*pointOri.x - crz*srx*pointOri.y - crx*pointOri.z) * coeff.y
                       + (crx*cry*srz*pointOri.x + crx*cry*crz*pointOri.y - cry*srx*pointOri.z) * coeff.z;
+            // J_ry
 
             float ary = ((cry*srx*srz - crz*sry)*pointOri.x 
                       + (sry*srz + cry*crz*srx)*pointOri.y + crx*cry*pointOri.z) * coeff.x
                       + ((-cry*crz - srx*sry*srz)*pointOri.x 
                       + (cry*srz - crz*srx*sry)*pointOri.y - crx*sry*pointOri.z) * coeff.z;
+            // J_rz
 
             float arz = ((crz*srx*sry - cry*srz)*pointOri.x + (-cry*crz-srx*sry*srz)*pointOri.y)*coeff.x
                       + (crx*crz*pointOri.x - crx*srz*pointOri.y) * coeff.y
@@ -1838,6 +1831,7 @@ public:
                 // roll角求加权均值，用scan-to-map优化得到的位姿与imu原始RPY数据，进行加权平均
                 transformQuaternion.setRPY(transformTobeMapped[0], 0, 0);
                 imuQuaternion.setRPY(cloudInfo.imuRollInit, 0, 0);
+                // slerp 四元数球面线性差值
                 tf::Matrix3x3(transformQuaternion.slerp(imuQuaternion, imuWeight)).getRPY(rollMid, pitchMid, yawMid);
                 transformTobeMapped[0] = rollMid;
 
@@ -2061,6 +2055,8 @@ public:
         // gtSAMgraph.print("GTSAM Graph:\n");
         
         // 执行优化
+        // ISAM 与gtsam区别：https://www.guyuehome.com/35385
+        // ISAM.UPDATE 实际上是起到optimizor的作用？？？？？？？？？？？？？？？？？
         isam->update(gtSAMgraph, initialEstimate); 
         isam->update();
 

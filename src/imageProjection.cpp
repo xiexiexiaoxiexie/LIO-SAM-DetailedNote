@@ -104,7 +104,7 @@ private:
     // 当前帧原始激光点云
     pcl::PointCloud<PointXYZIRT>::Ptr laserCloudIn;
     pcl::PointCloud<OusterPointXYZIRT>::Ptr tmpOusterCloudIn;
-    // 当期帧运动畸变校正之后的激光点云
+    // 当期帧运动畸变校正之后的激光点云XYZI
     pcl::PointCloud<PointType>::Ptr   fullCloud;
     // 从fullCloud中提取有效点
     pcl::PointCloud<PointType>::Ptr   extractedCloud;
@@ -158,7 +158,8 @@ public:
 
     /**
      * 初始化
-     * pcl Ptr是智能指针
+     * 智能指针在用的时候一定要初始化，
+     * pcl Ptr是智能指针,在类里面用智能指针的reset方法初始化
     */
 
 
@@ -170,7 +171,7 @@ public:
         extractedCloud.reset(new pcl::PointCloud<PointType>());
 
         fullCloud->points.resize(N_SCAN*Horizon_SCAN);
-
+        //assign stl给list分配count和value
         cloudInfo.startRingIndex.assign(N_SCAN, 0);
         cloudInfo.endRingIndex.assign(N_SCAN, 0);
 

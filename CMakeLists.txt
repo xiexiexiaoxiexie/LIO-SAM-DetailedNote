@@ -25,7 +25,10 @@ find_package( GTSAMCMakeTools )
 
 find_package(OpenMP REQUIRED)
 find_package(PCL REQUIRED QUIET)
-find_package(OpenCV REQUIRED QUIET)
+#set( OpenCV_FOUND 1 )
+find_package(OpenCV 3 REQUIRED QUIET)
+include_directories( ${OpenCV_INCLUDE_DIRS} )
+
 find_package(GTSAM REQUIRED QUIET)
 
 add_message_files(
